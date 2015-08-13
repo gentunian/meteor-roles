@@ -277,17 +277,20 @@ _.extend(Roles, {
    * @param {String|Array} roles Name of role/permission or Array of 
    *                            roles/permissions to check against.  If array, 
    *                            will return true if user is in _any_ role.
-   * @param {String} [group] Optional. Name of group.  If supplied, limits check
-   *                         to just that group.
+   * @param {String|Array} [group] Optional. Name of group(s).  If supplied, limits check
+   *                         to just that(those) group(s).
    *                         The user's Roles.GLOBAL_GROUP will always be checked
    *                         whether group is specified or not.  
+   * @param {String] [constrain] Optional. Restricts search for roles in 'all' groups
+   *                             or in 'any' group. Defaults to 'any'.}
    * @return {Boolean} true if user is in _any_ of the target roles
    */
-  userIsInRole: function (user, roles, group) {
+  userIsInRole: function (user, roles, group, constrain) {
     var id,
         userRoles,
         query,
         groupQuery,
+        globalGroupQuery,
         found = false
 
     // ensure array to simplify code
@@ -295,15 +298,22 @@ _.extend(Roles, {
       roles = [roles]
     }
 
+    // defaults to 'any'
+    if (constrain === undefined) constrain = 'any'
+
     if (!user) return false
     if (group) {
-      if ('string' !== typeof group) return false
-      if ('$' === group[0]) return false
+
+      if (!_.isArray(group)) {
+        group = [group]
+      }
+
+      if (_.find(group, function(a) { return a[0] == '$'; })) return false
 
       // convert any periods to underscores
-      group = group.replace(/\./g, '_')
+      group = _.map(group, function(a) { return a.replace(/\./g,'_') })
     }
-    
+
     if ('object' === typeof user) {
       userRoles = user.roles
       if (_.isArray(userRoles)) {
@@ -312,9 +322,16 @@ _.extend(Roles, {
         })
       } else if ('object' === typeof userRoles) {
         // roles field is dictionary of groups
-        found = _.isArray(userRoles[group]) && _.some(roles, function (role) {
-          return _.contains(userRoles[group], role)
-        })
+        if (constrain.toLowerCase() == 'any') {
+          found = _.some(userRoles, function(a, b) { 
+            return (_.contains(group, b) && _.intersection(a, roles).length > 0)
+          })
+        } else if (constrain.toLowerCase() == 'all') {
+          found = _.every(userRoles, function(a, b) { 
+            return (_.contains(group, b) && _.intersection(a, roles).length > 0)
+          })
+        }
+
         if (!found) {
           // not found in regular group or group not specified.  
           // check Roles.GLOBAL_GROUP, if it exists
@@ -337,20 +354,25 @@ _.extend(Roles, {
     query = {_id: id, $or: []}
 
     // always check Roles.GLOBAL_GROUP
-    groupQuery = {}
-    groupQuery['roles.'+Roles.GLOBAL_GROUP] = {$in: roles}
-    query.$or.push(groupQuery)
+    globalGroupQuery = {}
+    globalGroupQuery['roles.'+Roles.GLOBAL_GROUP] = {$in: roles}
+    query.$or.push(globalGroupQuery)
 
     if (group) {
       // structure of query, when group specified including Roles.GLOBAL_GROUP 
       //   {_id: id, 
       //    $or: [
-      //      {'roles.group1':{$in: ['admin']}},
+      //      {
+      //          $or: [{'roles.group1':{$in: ['admin']}},{'roles.group2':{$in: ['admin']}}]
+      //      },
       //      {'roles.__global_roles__':{$in: ['admin']}}
       //    ]}
-      groupQuery = {}
-      groupQuery['roles.'+group] = {$in: roles}
-      query.$or.push(groupQuery)
+      var c = _.map(group, function(a) { var o ={}; o['roles.'+a] = {$in: roles}; return o; })
+      if (constrain.toLowerCase() == 'any') {
+        query.$or.push({$or: c})
+      } else if (constrain.toLowerCase() == 'all') {
+        query.$or.push({$and: c})
+      }
     } else {
       // structure of query, where group not specified. includes 
       // Roles.GLOBAL_GROUP 
@@ -430,7 +452,7 @@ _.extend(Roles, {
    * @param {Array|String} role Name of role/permission.  If array, users 
    *                            returned will have at least one of the roles
    *                            specified but need not have _all_ roles.
-   * @param {String} [group] Optional name of group to restrict roles to.
+   * @param {String|Array} [group] Optional name of group to restrict roles to.
    *                         User's Roles.GLOBAL_GROUP will also be checked.
    * @return {Cursor} cursor of users in role
    */
@@ -443,13 +465,17 @@ _.extend(Roles, {
     if (!_.isArray(roles)) roles = [roles]
     
     if (group) {
-      if ('string' !== typeof group)
-        throw new Error ("Roles error: Invalid parameter 'group'. Expected 'string' type")
-      if ('$' === group[0])
+
+      if (!_.isArray(group)) {
+        group = [group]
+      }
+
+      if (_.find(group, function(a) { return a[0] == '$' })) {
         throw new Error ("Roles error: groups can not start with '$'")
+      }
 
       // convert any periods to underscores
-      group = group.replace(/\./g, '_')
+      group = _.map(group, function(a) { return a.replace(/\./g,'_') })
     }
 
     query = {$or: []}
@@ -466,9 +492,13 @@ _.extend(Roles, {
       //      {'roles.group1':{$in: ['admin']}},
       //      {'roles.__global_roles__':{$in: ['admin']}}
       //    ]}
-      groupQuery = {}
-      groupQuery['roles.'+group] = {$in: roles}
-      query.$or.push(groupQuery)
+      _.each(
+        group,
+        function(a) {
+          groupQuery = {}
+          groupQuery['roles.'+a] = {$in: roles}
+          query.$or.push(groupQuery)
+        });
     } else {
       // structure of query, where group not specified. includes 
       // Roles.GLOBAL_GROUP 
