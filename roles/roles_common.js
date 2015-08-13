@@ -492,13 +492,11 @@ _.extend(Roles, {
       //      {'roles.group1':{$in: ['admin']}},
       //      {'roles.__global_roles__':{$in: ['admin']}}
       //    ]}
-      _.each(
-        group,
-        function(a) {
-          groupQuery = {}
-          groupQuery['roles.'+a] = {$in: roles}
-          query.$or.push(groupQuery)
-        });
+      var c = _.map(group, function(a) { var o ={}; o['roles.'+a] = {$in: roles}; return o; })
+      // we want to get all users that has the roles in all groups
+      // For example: 'admin' role for ['Linux', 'Windows'] groups should return users
+      // that has the 'admin' role in both groups.
+      query.$or.push({$and: c})
     } else {
       // structure of query, where group not specified. includes 
       // Roles.GLOBAL_GROUP 
