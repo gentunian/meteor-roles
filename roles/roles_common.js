@@ -393,18 +393,22 @@ _.extend(Roles, {
    *
    * @method getRolesForUser
    * @param {String|Object} user User Id or actual user object
-   * @param {String} [group] Optional name of group to restrict roles to.
+   * @param {String|Array} [group] Optional name of group to restrict roles to.
    *                         User's Roles.GLOBAL_GROUP will also be included.
    * @return {Array} Array of user's roles, unsorted.
    */
   getRolesForUser: function (user, group) {
-    if (!user) return []
+    if (!user) return [];
     if (group) {
-      if ('string' !== typeof group) return []
-      if ('$' === group[0]) return []
+
+      if (!_.isArray(group)) {
+        group = [group];
+      }
+
+      if (_.find(group, function(a) { return a[0] == '$'; })) return false;
 
       // convert any periods to underscores
-      group = group.replace(/\./g, '_')
+      group = _.map(group, function(a) { return a.replace(/\./g,'_') });
     }
 
     if ('string' === typeof user) {
@@ -420,7 +424,8 @@ _.extend(Roles, {
     if (!user || !user.roles) return []
 
     if (group) {
-      return _.union(user.roles[group] || [], user.roles[Roles.GLOBAL_GROUP] || [])
+      var roles = _.filter(user.roles, function(a,b){ return _.contains(group, b);})
+      return _.intersection.apply(_, roles);
     }
 
     if (_.isArray(user.roles))
